@@ -1,6 +1,15 @@
+
+install.packages("stringr")
+install.packages("dplyr")
+install.packages("lubridate")
+install.packages("ggplot2")
+
+
 library(readr)
 library(dplyr)
 library(stringr)
+library(lubridate)
+library(ggplot2)
 
 # Caminho base dos arquivos CSV
 caminho_base <- "/home/diego/Documentos/Semestre 2024.2/Nova_Analise/dados/tabelas"
@@ -25,32 +34,46 @@ for (arquivo in arquivos) {
 
 message(paste("\nTotal de arquivos carregados:", length(tabelas)))
 
-#################################################################
-  
-  
-  colunas_corrigidas <- c(
-    'cpf', 'matricula_do_estudante', 'periodo_de_ingresso', 'forma_de_ingresso',
-    'codigo_do_curriculo', 'estado_civil', 'sexo', 'data_de_nascimento', 'cor',
-    'ano_de_conclusao_ensino_medio', 'tipo_de_ensino_medio', 'politica_afirmativa',
-    'situacao', 'motivo_de_evasao', 'periodo_de_evasao'
-  )
+
+####
+# Verificar colunas
+for (nome in names(tabelas)) {
+  df <- tabelas[[nome]]
+  cat("Tabela:", nome, "- Número de colunas:", ncol(df), "\n")
+  colnames_sem_nome <- which(is.na(colnames(df)) | colnames(df) == "")
+  if (length(colnames_sem_nome) > 0) {
+    cat("  Colunas sem nome:", colnames_sem_nome, "\n")
+  }
+}
+# Padronizar colunas
+colunas_corrigidas <- c(
+  'cpf', 'matricula_do_estudante', 'periodo_de_ingresso', 'forma_de_ingresso',
+  'codigo_do_curriculo', 'estado_civil', 'sexo', 'data_de_nascimento', 'cor',
+  'ano_de_conclusao_ensino_medio', 'tipo_de_ensino_medio', 'politica_afirmativa',
+  'situacao', 'motivo_de_evasao', 'periodo_de_evasao'
+)
 
 for (nome in names(tabelas)) {
   if (str_detect(nome, "alunos-novos")) {
     df <- tabelas[[nome]]
-    if (ncol(df) == length(colunas_corrigidas)) {
+    
+    # Corrigir colunas sem nome
+    colnames(df)[is.na(colnames(df)) | colnames(df) == ""] <- paste0("col_extra_", seq_len(sum(is.na(colnames(df)) | colnames(df) == "")))
+    
+    if (ncol(df) >= length(colunas_corrigidas)) {
+      # Manter só as primeiras colunas que interessam
+      df <- df[, 1:length(colunas_corrigidas)]
       colnames(df) <- colunas_corrigidas
       tabelas[[nome]] <- df
+      message(paste("✔️ Tabela", nome, "corrigida com colunas padronizadas."))
     } else {
-      message(paste("Tabela", nome, "não tem o número esperado de colunas."))
+      message(paste("⚠️ Tabela", nome, "tem menos colunas que o esperado e não foi corrigida."))
     }
   }
 }
 
-  #############################################################
 
-library(lubridate)
-
+# Funções auxiliares
 filtrar_periodo <- function(df) {
   if ("periodo_de_ingresso" %in% names(df)) {
     df$periodo_de_ingresso <- as.numeric(df$periodo_de_ingresso)
@@ -61,17 +84,23 @@ filtrar_periodo <- function(df) {
 
 limpar_dados <- function(df) {
   df[df == "-" | df == "Não declarada"] <- NA
+  
   if ("data_de_nascimento" %in% names(df)) {
-    df$data_de_nascimento <- ymd(df$data_de_nascimento)
-    df <- df %>% mutate(
-      idade = ifelse(!is.na(data_de_nascimento), year(Sys.Date()) - year(data_de_nascimento), NA)
-    )
+    df <- df %>%
+      mutate(
+        data_de_nascimento = as.character(data_de_nascimento),
+        data_de_nascimento = gsub(" UTC", "", data_de_nascimento),
+        data_de_nascimento = suppressWarnings(as.Date(data_de_nascimento)),
+        idade = ifelse(!is.na(data_de_nascimento), year(Sys.Date()) - year(data_de_nascimento), NA)
+      )
   }
+  
   for (col in c("sexo", "estado_civil", "cor")) {
     if (col %in% names(df)) {
       df[[col]] <- str_to_sentence(trimws(as.character(df[[col]])))
     }
   }
+  
   return(df)
 }
 
@@ -90,11 +119,7 @@ for (nome in names(tabelas)) {
   }
 }
 
-#########################################################################
-
-
-library(ggplot2)
-
+# Função para calcular próximo período
 proximo_n_periodo <- function(periodo, n = 1) {
   parts <- str_split_fixed(as.character(periodo), "\\.", 2)
   ano <- as.integer(parts[,1])
@@ -110,6 +135,7 @@ proximo_n_periodo <- function(periodo, n = 1) {
   return(paste0(ano, ".", semestre))
 }
 
+# Função principal de evasão
 evasao_apos_n_periodos <- function(df, n, inicio, fim) {
   df <- df %>%
     mutate(
@@ -125,7 +151,8 @@ evasao_apos_n_periodos <- function(df, n, inicio, fim) {
     summarise(
       total_ingressantes = n(),
       total_evasao = sum(evadiu, na.rm = TRUE),
-      taxa_evasao = total_evasao / total_ingressantes
+      taxa_evasao = total_evasao / total_ingressantes,
+      .groups = "drop"
     )
   return(df)
 }
@@ -172,8 +199,4 @@ for (tabela_nome in unique(dados_plot$tabela)) {
   print(p)
 }
 
-  
-  
-  
-  
-  
+View(dados_plot)
