@@ -1,4 +1,4 @@
-
+install.packages("tidyr")
 install.packages("stringr")
 install.packages("dplyr")
 install.packages("lubridate")
@@ -137,113 +137,296 @@ for (ano in anos) {
     periodos_ingresso <- c(periodos_ingresso, as.integer(paste0(ano, semestre)))
   }
 }
+###############################################################################
+
+# padronizar o nome da coluna matrcula para matricula_do_estudante
+names(tabelas[["alunos-final"]])[names(tabelas[["alunos-final"]]) == "matrcula"] <- "matricula_do_estudante"
+names(tabelas[["alunos-final"]])
+
+# Etapas para tratar duplicação
+# Função para deduplicar por CPF e por Matrícula
+
+tratar_duplicacao <- function(tabela, nome_tabela) {
+  cpf_col <- "cpf"
+  matricula_col <- "matricula"  # ou "matricula_do_estudante"
+  
+  colunas_presentes <- names(tabela)
+  
+  # Ajuste para nomes alternativos de coluna
+  if (!cpf_col %in% colunas_presentes && "CPF" %in% colunas_presentes) cpf_col <- "CPF"
+  if (!matricula_col %in% colunas_presentes && "matricula_do_estudante" %in% colunas_presentes) {
+    matricula_col <- "matricula_do_estudante"
+  }
+  
+  resultados <- list()
+  
+  # Deduplicar por CPF
+  if (cpf_col %in% names(tabela)) {
+    dedup_cpf <- tabela %>% 
+      arrange(!!sym(cpf_col)) %>%
+      distinct(!!sym(cpf_col), .keep_all = TRUE)
+    
+    resultados[[paste0(nome_tabela, "_dedup_cpf")]] <- dedup_cpf
+  }
+  
+  # Deduplicar por matrícula
+  if (matricula_col %in% names(tabela)) {
+    dedup_matricula <- tabela %>% 
+      arrange(!!sym(matricula_col)) %>%
+      distinct(!!sym(matricula_col), .keep_all = TRUE)
+    
+    resultados[[paste0(nome_tabela, "_dedup_matricula")]] <- dedup_matricula
+  }
+  
+  return(resultados)
+}
+
+# licar a todas as tabelas
+
+# Aplicar a função a todas as tabelas
+tabelas_tratadas <- purrr::map2(
+  tabelas,
+  names(tabelas),
+  tratar_duplicacao
+)
+
+# Como o resultado é uma lista de listas, vamos "achatar"
+tabelas_tratadas_flat <- purrr::flatten(tabelas_tratadas)
+
+# Ver quais tabelas temos agora
+names(tabelas_tratadas_flat)
+
+#  verificação
+
+# Tabelas originais
+tabelas_originais <- names(tabelas)
+
+# Verificações de quais tabelas foram tratadas
+tabelas_tratadas_nomes <- names(tabelas_tratadas_flat)
+
+# Função para verificar se ambas versões (cpf e matricula) existem para cada tabela
+verificar_tratamento <- function(nome) {
+  cpf_ok <- paste0(nome, "_dedup_cpf") %in% tabelas_tratadas_nomes
+  matricula_ok <- paste0(nome, "_dedup_matricula") %in% tabelas_tratadas_nomes
+  data.frame(
+    tabela = nome,
+    cpf_tratado = cpf_ok,
+    matricula_tratado = matricula_ok
+  )
+}
+
+# Aplicar verificação a todas as tabelas
+verificacoes <- purrr::map_dfr(tabelas_originais, verificar_tratamento)
+
+# Mostrar resultado
+print(verificacoes)
+
+str(tabelas[["alunos-final"]])
+head(tabelas[["alunos-final"]])
+
 
 ###############################################################################
 
-# Calcular evasões ao final do primeiro período
+# Renomear colunas, se necessário
+colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]])[colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]]) == "perodo_de_ingresso"] <- "periodo_de_ingresso"
+colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]])[colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]]) == "perodo_de_evaso"] <- "periodo_de_evasao"
+colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]])[colnames(tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]]) == "matrcula"] <- "matricula_do_estudante"
 
-# Função principal
-calcular_evasao_primeiro_periodo <- function(tabela, nome_tabela) {
-  if (!tem_colunas(tabela, c("periodo_de_ingresso", "periodo_de_evasao"))) {
-    return(NULL)
+library(dplyr)
+
+# 🔧 Exibir todas as linhas (caso queira visualizar no View)
+options(dplyr.print_max = Inf)
+
+# 📅 Função para calcular o próximo período semestral
+proximo_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
   }
+}
+
+# 📊 Função principal para calcular evasão ao final do primeiro período
+evasao_primeiro_periodo <- function(df, inicio = "2011.1", fim = "2017.2") {
+  # Tratar NA e converter para texto
+  df$periodo_de_ingresso <- as.character(df$periodo_de_ingresso)
+  df$periodo_de_evasao <- as.character(df$periodo_de_evasao)
   
-  df <- tabela %>%
-    filter(periodo_de_ingresso %in% periodos_ingresso) %>%
+  # Filtrar alunos no intervalo de ingresso
+  df_filtrado <- df %>%
+    filter(periodo_de_ingresso >= inicio & periodo_de_ingresso <= fim) %>%
     mutate(
-      periodo_de_ingresso = as.integer(periodo_de_ingresso),
-      periodo_de_evasao = as.integer(periodo_de_evasao),
-      periodo_alvo = periodo_de_ingresso + ifelse(periodo_de_ingresso %% 10 == 1, 1, 9)
-    ) %>%
-    mutate(evadiu_no_primeiro_periodo = periodo_de_evasao == periodo_alvo) %>%
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, proximo_periodo),
+      evadiu_no_primeiro_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    )
+  
+  # Agrupar e calcular total e evasão
+  resumo <- df_filtrado %>%
     group_by(periodo_de_ingresso) %>%
     summarise(
       total_ingressantes = n(),
-      evasao_primeiro_periodo = sum(evadiu_no_primeiro_periodo, na.rm = TRUE),
-      taxa_evasao = round(100 * evasao_primeiro_periodo / total_ingressantes, 2)
+      total_evasao = sum(evadiu_no_primeiro_periodo, na.rm = TRUE),
+      taxa_evasao = round(total_evasao / total_ingressantes, 4)
     ) %>%
-    mutate(tabela = nome_tabela)
+    ungroup()
   
-  return(df)
+  return(resumo)
 }
 
-# Aplicar às tabelas
+# 📁 Nome da tabela de interesse
+nome_tabela <- "alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"
+df_tabela <- tabelas[[nome_tabela]]
 
-estatisticas_evasao <- purrr::map2_dfr(
-  tabelas,
-  names(tabelas),
-  calcular_evasao_primeiro_periodo
-)
+# 🧪 Aplicar a função na tabela
+resultado <- evasao_primeiro_periodo(df_tabela)
 
-# Visualizar resultado
-print(estatisticas_evasao)
-View(estatisticas_evasao)
-
+# 📋 Visualizar
+print(paste("📘 Evasão para a tabela:", nome_tabela))
+print(resultado)
+View(resultado)
 
 ###############################################################################
 
+# final do segundo período após o ingresso
 
+library(dplyr)
 
+# Função para avançar um período (semestre)
+library(dplyr)
 
-
-
-
-
-
-
-
-
-# Funções auxiliares
-filtrar_periodo <- function(df) {
-  if ("periodo_de_ingresso" %in% names(df)) {
-    df$periodo_de_ingresso <- as.numeric(df$periodo_de_ingresso)
-    df <- df %>% filter(between(periodo_de_ingresso, 2011.1, 2023.2))
-  }
-  return(df)
-}
-
-limpar_dados <- function(df) {
-  df[df == "-" | df == "Não declarada"] <- NA
-  
-  if ("data_de_nascimento" %in% names(df)) {
-    df <- df %>%
-      mutate(
-        data_de_nascimento = as.character(data_de_nascimento),
-        data_de_nascimento = gsub(" UTC", "", data_de_nascimento),
-        data_de_nascimento = suppressWarnings(as.Date(data_de_nascimento)),
-        idade = ifelse(!is.na(data_de_nascimento), year(Sys.Date()) - year(data_de_nascimento), NA)
-      )
-  }
-  
-  for (col in c("sexo", "estado_civil", "cor")) {
-    if (col %in% names(df)) {
-      df[[col]] <- str_to_sentence(trimws(as.character(df[[col]])))
-    }
-  }
-  
-  return(df)
-}
-
-tabelas_relevantes <- c(
-  "alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas",
-  "alunos", "alunos-matriculados", 
-  "alunos-final", "alunos-filtrado-sem-metricas"
-)
-
-tabelas_tratadas <- list()
-
-for (nome in names(tabelas)) {
-  if (nome %in% tabelas_relevantes) {
-    df <- tabelas[[nome]] %>% filtrar_periodo() %>% limpar_dados()
-    tabelas_tratadas[[nome]] <- df
+# Função para avançar um período
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
   }
 }
 
-# Função para calcular próximo período
+# Função para avançar três períodos
+avancar_tres_periodos <- function(periodo) {
+  primeiro <- avancar_periodo(periodo)
+  segundo <- avancar_periodo(primeiro)
+  terceiro <- avancar_periodo(segundo)
+  return(terceiro)
+}
+
+# Função para calcular evasão ao final do terceiro período após ingresso
+evasao_terceiro_periodo <- function(df, inicio = "2011.1", fim = "2016.2") {
+  df$periodo_de_ingresso <- as.character(df$periodo_de_ingresso)
+  df$periodo_de_evasao <- as.character(df$periodo_de_evasao)
+  
+  df_filtrado <- df %>%
+    filter(periodo_de_ingresso >= inicio & periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_tres_periodos),
+      evadiu_no_terceiro_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    )
+  
+  resumo <- df_filtrado %>%
+    group_by(periodo_de_ingresso) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_terceiro_periodo, na.rm = TRUE),
+      taxa_evasao = round(total_evasao / total_ingressantes, 4)
+    ) %>%
+    ungroup()
+  
+  return(resumo)
+}
+
+# Aplicar na tabela indicada
+nome_tabela <- "alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"
+df_tabela <- tabelas[[nome_tabela]]
+
+resultado_terceiro_periodo <- evasao_terceiro_periodo(df_tabela)
+
+print(paste("📘 Evasão ao final do terceiro período para a tabela:", nome_tabela))
+print(resultado_terceiro_periodo)
+View(resultado_terceiro_periodo)
+
+
+
+##############################################################################
+
+# evasão ao final do quarto período:
+library(dplyr)
+
+# Função para avançar um período (semestre)
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
+  }
+}
+
+# Função para avançar N períodos (usando a função avancar_periodo N vezes)
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
+
+# Função para calcular evasão ao final do quarto período após ingresso
+evasao_quarto_periodo <- function(df, inicio = "2011.1", fim = "2016.1") {
+  df$periodo_de_ingresso <- as.character(df$periodo_de_ingresso)
+  df$periodo_de_evasao <- as.character(df$periodo_de_evasao)
+  
+  df_filtrado <- df %>%
+    filter(periodo_de_ingresso >= inicio & periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = 4),
+      evadiu_no_quarto_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    )
+  
+  resumo <- df_filtrado %>%
+    group_by(periodo_de_ingresso) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_quarto_periodo, na.rm = TRUE),
+      taxa_evasao = round(total_evasao / total_ingressantes, 4)
+    ) %>%
+    ungroup()
+  
+  return(resumo)
+}
+
+# Aplicar na tabela indicada
+nome_tabela <- "alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"
+df_tabela <- tabelas[[nome_tabela]]
+
+resultado_quarto_periodo <- evasao_quarto_periodo(df_tabela)
+
+print(paste("📘 Evasão ao final do quarto período para a tabela:", nome_tabela))
+print(resultado_quarto_periodo)
+View(resultado_quarto_periodo)
+
+
+##############################################################################
+
+# Gráfico comparativo com ggplot2
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Função para calcular o N-ésimo período após o ingresso
 proximo_n_periodo <- function(periodo, n = 1) {
-  parts <- str_split_fixed(as.character(periodo), "\\.", 2)
-  ano <- as.integer(parts[,1])
-  semestre <- as.integer(parts[,2])
+  ano <- as.integer(sub("\\..*", "", periodo))
+  semestre <- as.integer(sub(".*\\.", "", periodo))
   for (i in seq_len(n)) {
     if (semestre == 1) {
       semestre <- 2
@@ -252,71 +435,91 @@ proximo_n_periodo <- function(periodo, n = 1) {
       ano <- ano + 1
     }
   }
-  return(paste0(ano, ".", semestre))
+  paste0(ano, ".", semestre)
 }
 
-# Função principal de evasão
-evasao_apos_n_periodos <- function(df, n, inicio, fim) {
+# Função genérica para calcular evasão ao final de N períodos
+evasao_apos_n_periodos <- function(df, n_periodo, inicio, fim) {
+  
+  # Verifica se as colunas necessárias existem
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao", "cpf", "tipo_de_evasao", "status")
+  if (!all(colunas_necessarias %in% colnames(df))) {
+    warning("A tabela não possui todas as colunas necessárias e será ignorada.")
+    return(NULL)
+  }
+  
   df <- df %>%
     mutate(
       periodo_de_ingresso = as.character(periodo_de_ingresso),
       periodo_de_evasao = as.character(periodo_de_evasao)
     ) %>%
-    filter(periodo_de_ingresso >= inicio & periodo_de_ingresso <= fim) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
     mutate(
-      periodo_esperado_evasao = proximo_n_periodo(periodo_de_ingresso, n),
-      evadiu = periodo_de_evasao == periodo_esperado_evasao
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, proximo_n_periodo, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao & tipo_de_evasao != "-" & status == "INATIVO")
     ) %>%
     group_by(periodo_de_ingresso) %>%
     summarise(
       total_ingressantes = n(),
-      total_evasao = sum(evadiu, na.rm = TRUE),
-      taxa_evasao = total_evasao / total_ingressantes,
+      total_evasao = sum(evadiu_no_periodo, na.rm = TRUE),
+      taxa_evasao = round(100 * total_evasao / total_ingressantes, 2),
       .groups = "drop"
     )
+  
   return(df)
 }
 
-# Parâmetros por currículo
+# Definindo os currículos e seus intervalos
 curriculos <- list(
   "1999" = list(inicio = "2011.1", fim = "2016.2"),
   "2017" = list(inicio = "2018.1", fim = "2022.3")
 )
 
-# Montagem dos dados para gráfico
-dados_plot <- data.frame()
+# Lista das tabelas
+tabelas_nomes <- names(tabelas)
 
+# Lista para armazenar resultados
+dados_para_plot <- data.frame()
+
+# Loop pelos currículos, períodos e tabelas
 for (curriculo in names(curriculos)) {
   intervalo <- curriculos[[curriculo]]
-  for (n in 1:4) {
-    for (nome in names(tabelas_tratadas)) {
-      df <- tabelas_tratadas[[nome]]
-      resultado <- evasao_apos_n_periodos(df, n, intervalo$inicio, intervalo$fim)
-      if (nrow(resultado) > 0) {
-        resultado <- resultado %>%
-          mutate(
-            periodo = paste0(n, "º período"),
-            curriculo = curriculo,
-            tabela = nome
-          )
-        dados_plot <- bind_rows(dados_plot, resultado)
+  
+  for (n in 1:4) {  # Do 1º ao 4º período
+    for (nome_tabela in tabelas_nomes) {
+      tabela <- tabelas[[nome_tabela]]
+      resultado <- evasao_apos_n_periodos(tabela, n, intervalo$inicio, intervalo$fim)
+      
+      if (!is.null(resultado)) {
+        resultado$periodo <- paste0(n, "º período")
+        resultado$curriculo <- curriculo
+        resultado$tabela <- nome_tabela
+        
+        dados_para_plot <- bind_rows(dados_para_plot, resultado)
       }
     }
   }
 }
 
-# Gráficos
-for (tabela_nome in unique(dados_plot$tabela)) {
-  dados_tabela <- dados_plot %>% filter(tabela == tabela_nome)
-  p <- ggplot(dados_tabela, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
-    geom_boxplot() +
-    labs(
-      title = paste("Taxa de Evasão por Período e Currículo - Tabela:", tabela_nome),
-      x = "Período", y = "Taxa de Evasão", fill = "Currículo"
-    ) +
+# Visualizar um pouco dos dados para conferir
+head(dados_para_plot)
+
+# Gráfico: boxplot taxa de evasão por período e currículo, para cada tabela
+library(ggplot2)
+
+for (tabela_nome in unique(dados_para_plot$tabela)) {
+  dados_tabela <- dados_para_plot %>% filter(tabela == tabela_nome)
+  
+  ggplot(dados_tabela, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
+    geom_boxplot(alpha = 0.7) +
+    labs(title = paste("Taxa de Evasão por Período e Currículo - Tabela:", tabela_nome),
+         x = "Período após ingresso",
+         y = "Taxa de Evasão (%)",
+         fill = "Currículo") +
     theme_minimal() +
-    scale_fill_brewer(palette = "Set2")
+    theme(plot.title = element_text(hjust = 0.5)) -> p
+  
   print(p)
 }
+chooseCRANmirror()
 
-View(dados_plot)
