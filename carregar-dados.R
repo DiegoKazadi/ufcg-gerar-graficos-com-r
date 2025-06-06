@@ -643,9 +643,214 @@ ggplot(dados_linha, aes(x = periodo_esperado_evasao, y = taxa_evasao, color = cu
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "top"
   )
+##############################################################################
+# Evasão por cor
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Funções auxiliares
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
+  }
+}
+
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
+
+# Função com cor adicionada
+evasao_por_cor <- function(df, n_periodo, inicio, fim) {
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao", "cor")
+  if (!all(colunas_necessarias %in% colnames(df))) return(NULL)
+  
+  df <- df %>%
+    mutate(
+      periodo_de_ingresso = as.character(periodo_de_ingresso),
+      periodo_de_evasao = as.character(periodo_de_evasao)
+    ) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    ) %>%
+    group_by(cor, periodo_esperado_evasao) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_periodo, na.rm = TRUE),
+      taxa_evasao = round(100 * total_evasao / total_ingressantes, 2),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      periodo = paste0(n_periodo, "º período"),
+      periodo_esperado_evasao = factor(periodo_esperado_evasao, levels = sort(unique(periodo_esperado_evasao)))
+    )
+  
+  return(df)
+}
+
+# Intervalos por currículo
+curriculos <- list(
+  "1999" = list(inicio = "2011.1", fim = "2016.2"),
+  "2017" = list(inicio = "2018.1", fim = "2022.3")
+)
+
+tabelas_nomes <- names(tabelas)
+dados_cor <- data.frame()
+
+# Loop principal por currículo e período
+for (curriculo in names(curriculos)) {
+  intervalo <- curriculos[[curriculo]]
+  
+  for (n in 1:4) {
+    for (nome_tabela in tabelas_nomes) {
+      tabela <- tabelas[[nome_tabela]]
+      resultado <- evasao_por_cor(tabela, n, intervalo$inicio, intervalo$fim)
+      
+      if (!is.null(resultado) && nrow(resultado) > 0) {
+        resultado$curriculo <- curriculo
+        resultado$tabela <- nome_tabela
+        dados_cor <- bind_rows(dados_cor, resultado)
+      }
+    }
+  }
+}
+
+# Verificação
+if (nrow(dados_cor) == 0) stop("Nenhum dado encontrado com variável cor. Verifique os dados de entrada.")
+
+# 📊 Gráfico por cor
+ggplot(dados_cor, aes(x = periodo_esperado_evasao, y = taxa_evasao, color = cor, group = interaction(cor, curriculo))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ periodo + curriculo, scales = "free_y") +
+  labs(
+    title = "📉 Evolução da Evasão por Cor/Raça dos Alunos",
+    x = "Período em que a evasão ocorreu",
+    y = "Taxa de Evasão (%)",
+    color = "Cor/Raça"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
 
 ##############################################################################
 # Histogramas das Taxas de Evasão por Currículo
+# Evasão por cor
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Funções auxiliares
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
+  }
+}
+
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
+
+# Função com cor adicionada
+evasao_por_cor <- function(df, n_periodo, inicio, fim) {
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao", "cor")
+  if (!all(colunas_necessarias %in% colnames(df))) return(NULL)
+  
+  df <- df %>%
+    mutate(
+      periodo_de_ingresso = as.character(periodo_de_ingresso),
+      periodo_de_evasao = as.character(periodo_de_evasao)
+    ) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    ) %>%
+    group_by(cor, periodo_esperado_evasao) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_periodo, na.rm = TRUE),
+      taxa_evasao = round(100 * total_evasao / total_ingressantes, 2),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      periodo = paste0(n_periodo, "º período"),
+      periodo_esperado_evasao = factor(periodo_esperado_evasao, levels = sort(unique(periodo_esperado_evasao)))
+    )
+  
+  return(df)
+}
+
+# Intervalos por currículo
+curriculos <- list(
+  "1999" = list(inicio = "2011.1", fim = "2016.2"),
+  "2017" = list(inicio = "2018.1", fim = "2022.3")
+)
+
+tabelas_nomes <- names(tabelas)
+dados_cor <- data.frame()
+
+# Loop principal por currículo e período
+for (curriculo in names(curriculos)) {
+  intervalo <- curriculos[[curriculo]]
+  
+  for (n in 1:4) {
+    for (nome_tabela in tabelas_nomes) {
+      tabela <- tabelas[[nome_tabela]]
+      resultado <- evasao_por_cor(tabela, n, intervalo$inicio, intervalo$fim)
+      
+      if (!is.null(resultado) && nrow(resultado) > 0) {
+        resultado$curriculo <- curriculo
+        resultado$tabela <- nome_tabela
+        dados_cor <- bind_rows(dados_cor, resultado)
+      }
+    }
+  }
+}
+
+# Verificação
+if (nrow(dados_cor) == 0) stop("Nenhum dado encontrado com variável cor. Verifique os dados de entrada.")
+
+ggplot(dados_cor, aes(x = periodo_esperado_evasao, y = taxa_evasao, fill = cor)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ periodo + curriculo, scales = "free_y") +
+  labs(
+    title = "📊 Taxa de Evasão por Cor/Raça dos Alunos por Período e Currículo",
+    x = "Período em que a evasão ocorreu",
+    y = "Taxa de Evasão (%)",
+    fill = "Cor/Raça"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+##############################################################################
+
 library(ggplot2)
 library(dplyr)
 
@@ -1221,6 +1426,41 @@ ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
   theme_minimal()
 
 ###########################################################################
+library(dplyr)
+
+estatisticas <- dados %>%
+  filter(status == "INATIVO", !is.na(cor), !is.na(estado_civil), !is.na(currculo)) %>%
+  group_by(cor, estado_civil, currculo) %>%
+  summarise(
+    media = mean(periodos_cursados, na.rm = TRUE),
+    n = n()
+  ) %>%
+  filter(n >= 5)  # opcional: remover grupos muito pequenos
+
+
+###
+
+library(ggplot2)
+
+ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c(
+    "Solteiro(a)" = "#A6CEE3",
+    "Casado(a)" = "#B2DF8A",
+    "Divorciado(a)" = "#FB9A99",
+    "Viúvo(a)" = "#FDBF6F",
+    "Separado(a)" = "#CAB2D6"
+  )) +
+  labs(
+    title = "Média de períodos cursados até evasão por cor, estado civil e currículo",
+    x = "Cor/Raça",
+    y = "Média de Períodos Cursados",
+    fill = "Estado Civil"
+  ) +
+  facet_wrap(~ currculo) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 library(ggplot2)
 
 ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
@@ -1239,3 +1479,55 @@ ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
     fill = "Estado Civil"
   ) +
   theme_minimal()
+
+
+##############################################################################
+# Teste t de Student para comparar a média de idade entre alunos evadidos e não evadidos
+# Verifique os nomes e valores corretos das colunas em seu dataset
+library(dplyr)
+
+# Filtrar apenas ATIVO e INATIVO, excluir GRADUADO
+dados_filtrados <- dados %>%
+  filter(status %in% c("ATIVO", "INATIVO")) %>%
+  mutate(evasao_bin = ifelse(status == "INATIVO", 1, 0))
+
+# Teste t para idade entre evadidos e não evadidos
+resultado_ttest <- t.test(idade_aproximada_no_ingresso ~ evasao_bin, data = dados_filtrados, na.action = na.omit)
+
+print(resultado_ttest)
+
+##############################################################################
+
+# Criar variável binária para evasão: 1 = evadiu, 0 = não evadiu
+dados <- dados %>%
+  mutate(evasao_bin = ifelse(status == "INATIVO", 1, 0)) # Considera "INATIVO" como evadido
+
+# Função para rodar e imprimir o teste qui-quadrado para uma variável categórica
+rodar_teste_chi <- function(variavel) {
+  cat("\nTeste Qui-quadrado para evasão vs", variavel, "\n")
+  
+  tabela <- table(dados[[variavel]], dados$evasao_bin)
+  print(tabela)
+  
+  resultado <- chisq.test(tabela)
+  print(resultado)
+}
+
+# Rodar para as variáveis desejadas
+rodar_teste_chi("sexo")
+rodar_teste_chi("estado_civil")
+rodar_teste_chi("cor")
+
+
+##############################################################################
+# Teste Fisher
+# Crie uma nova coluna cor_agrupada
+dados$cor_agrupada <- as.character(dados$cor)
+dados$cor_agrupada[dados$cor_agrupada %in% c("Amarela", "Indígena", "Não declarada")] <- "Outros"
+
+# Refaça a tabela
+tabela_agrupada <- table(dados$cor_agrupada, dados$evasao_bin)
+
+# Rode Fisher Test na tabela menor
+fisher.test(tabela_agrupada)
+
