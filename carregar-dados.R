@@ -537,43 +537,705 @@ ggplot(dados_para_plot, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
   )
 
 ##############################################################################
+# Evolução Semestral da Evasão com
 library(dplyr)
 library(ggplot2)
 library(tidyr)
 
-# Diretório de saída para salvar os gráficos (altere se quiser salvar em outro lugar)
-dir.create("graficos_evasao", showWarnings = FALSE)
+# Funções auxiliares
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
+  }
+}
 
-# Loop para gerar gráfico individual por tabela
-tabelas_unicas <- unique(dados_para_plot$tabela)
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
 
-for (nome_tabela in tabelas_unicas) {
-  dados_tabela <- dados_para_plot %>% filter(tabela == nome_tabela)
+# Função de evasão compatível com suas tabelas
+evasao_apos_n_periodos_simples <- function(df, n_periodo, inicio, fim) {
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao")
+  if (!all(colunas_necessarias %in% colnames(df))) {
+    return(NULL)
+  }
   
-  grafico <- ggplot(dados_tabela, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
-    geom_boxplot(alpha = 0.7) +
-    labs(
-      title = paste0("📉 Taxa de Evasão - ", nome_tabela),
-      x = "Período após ingresso",
-      y = "Taxa de Evasão (%)",
-      fill = "Currículo"
-    ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(hjust = 0.5),
-      axis.text.x = element_text(angle = 0),
-      legend.position = "top"
+  df <- df %>%
+    mutate(
+      periodo_de_ingresso = as.character(periodo_de_ingresso),
+      periodo_de_evasao = as.character(periodo_de_evasao)
+    ) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    ) %>%
+    group_by(periodo_esperado_evasao) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_periodo, na.rm = TRUE),
+      taxa_evasao = round(100 * total_evasao / total_ingressantes, 2),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      periodo = paste0(n_periodo, "º período"),
+      periodo_esperado_evasao = factor(periodo_esperado_evasao, levels = sort(unique(periodo_esperado_evasao)))
     )
   
-  # ✅ Mostrar na tela (descomente se quiser ver um por um)
-  # print(grafico)
-  
-  # ✅ Salvar como PNG
-  ggsave(
-    filename = paste0("graficos_evasao/", nome_tabela, ".png"),
-    plot = grafico,
-    width = 8,
-    height = 6,
-    dpi = 300
-  )
+  return(df)
 }
+
+# Intervalos por currículo
+curriculos <- list(
+  "1999" = list(inicio = "2011.1", fim = "2016.2"),
+  "2017" = list(inicio = "2018.1", fim = "2022.3")
+)
+
+tabelas_nomes <- names(tabelas)
+dados_linha <- data.frame()
+
+# Loop principal
+for (curriculo in names(curriculos)) {
+  intervalo <- curriculos[[curriculo]]
+  
+  for (n in 1:4) {
+    for (nome_tabela in tabelas_nomes) {
+      tabela <- tabelas[[nome_tabela]]
+      resultado <- evasao_apos_n_periodos_simples(tabela, n, intervalo$inicio, intervalo$fim)
+      
+      if (!is.null(resultado) && nrow(resultado) > 0) {
+        resultado$curriculo <- curriculo
+        resultado$tabela <- nome_tabela
+        dados_linha <- bind_rows(dados_linha, resultado)
+      }
+    }
+  }
+}
+
+# ⚠️ Verificação
+if (nrow(dados_linha) == 0) {
+  stop("Nenhum dado encontrado. Verifique os dados de entrada.")
+}
+
+# 📊 Gráfico de linha: evolução por período esperado de evasão
+ggplot(dados_linha, aes(x = periodo_esperado_evasao, y = taxa_evasao, color = curriculo, group = interaction(curriculo, periodo))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ periodo, scales = "free_y") +
+  labs(
+    title = "📈 Evolução Semestral da Taxa de Evasão por Período Após Ingresso",
+    x = "Período em que a evasão ocorreu",
+    y = "Taxa de Evasão (%)",
+    color = "Currículo"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+
+##############################################################################
+# Histogramas das Taxas de Evasão por Currículo
+library(ggplot2)
+library(dplyr)
+
+# Assumindo que `dados_linha` já está disponível do código anterior, com colunas:
+# taxa_evasao, curriculo, periodo, tabela, periodo_esperado_evasao
+
+# Histograma para cada currículo, separando os períodos (1º, 2º, 3º, 4º)
+ggplot(dados_linha, aes(x = taxa_evasao, fill = curriculo)) +
+  geom_histogram(binwidth = 2, alpha = 0.7, position = "identity", color = "black") +
+  facet_wrap(~ curriculo + periodo, scales = "free_y") +
+  labs(
+    title = "📊 Distribuição das Taxas de Evasão por Currículo e Período",
+    x = "Taxa de Evasão (%)",
+    y = "Frequência",
+    fill = "Currículo"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+
+
+##############################################################################
+# Gráfico de Barras Lado a Lado
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Funções auxiliares - reaproveitamos do código anterior
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
+  }
+}
+
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
+
+evasao_apos_n_periodos_simples <- function(df, n_periodo, inicio, fim) {
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao")
+  if (!all(colunas_necessarias %in% colnames(df))) {
+    return(NULL)
+  }
+  
+  df <- df %>%
+    mutate(
+      periodo_de_ingresso = as.character(periodo_de_ingresso),
+      periodo_de_evasao = as.character(periodo_de_evasao)
+    ) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    mutate(
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao)
+    ) %>%
+    group_by(periodo_esperado_evasao) %>%
+    summarise(
+      total_ingressantes = n(),
+      total_evasao = sum(evadiu_no_periodo, na.rm = TRUE),
+      taxa_evasao = round(100 * total_evasao / total_ingressantes, 2),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      periodo = paste0(n_periodo, "º período"),
+      periodo_esperado_evasao = factor(periodo_esperado_evasao, levels = sort(unique(periodo_esperado_evasao)))
+    )
+  
+  return(df)
+}
+
+# Intervalos dos currículos
+curriculos <- list(
+  "1999" = list(inicio = "2011.1", fim = "2016.2"),
+  "2017" = list(inicio = "2018.1", fim = "2022.3")
+)
+
+tabelas_nomes <- names(tabelas)
+dados_barras <- data.frame()
+
+# Montagem dos dados
+for (curriculo in names(curriculos)) {
+  intervalo <- curriculos[[curriculo]]
+  
+  for (n in 1:4) {
+    for (nome_tabela in tabelas_nomes) {
+      tabela <- tabelas[[nome_tabela]]
+      resultado <- evasao_apos_n_periodos_simples(tabela, n, intervalo$inicio, intervalo$fim)
+      
+      if (!is.null(resultado) && nrow(resultado) > 0) {
+        resultado$curriculo <- curriculo
+        resultado$tabela <- nome_tabela
+        dados_barras <- bind_rows(dados_barras, resultado)
+      }
+    }
+  }
+}
+
+# Verificação
+if (nrow(dados_barras) == 0) {
+  stop("Nenhum dado encontrado para o gráfico.")
+}
+
+# Gráfico de barras agrupadas (lado a lado)
+ggplot(dados_barras, aes(x = periodo_esperado_evasao, y = taxa_evasao, fill = curriculo)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  facet_wrap(~ periodo, scales = "free_y") +
+  labs(
+    title = "📊 Taxa de Evasão por Semestre e Período Após Ingresso",
+    x = "Período em que a evasão ocorreu",
+    y = "Taxa de Evasão (%)",
+    fill = "Currículo"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+##############################################################################
+# Liste as colunas do seu dataset
+colnames(dados)
+
+# Estratificação
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(dplyr)
+library(stringr)
+
+# Função para converter semestre do tipo "2011.1" para número sequencial para facilitar cálculo
+semestre_to_num <- function(semestre) {
+  ano <- as.integer(str_extract(semestre, "^\\d{4}"))
+  parte <- as.integer(str_extract(semestre, "\\.(\\d)$", group = 1))
+  return(ano * 2 + parte)
+}
+
+# Função para converter número sequencial para semestre "2011.1"
+num_to_semestre <- function(num) {
+  ano <- num %/% 2
+  parte <- num %% 2
+  parte <- ifelse(parte == 0, 2, 1)
+  ano <- ifelse(parte == 2, ano - 1, ano)
+  return(paste0(ano, ".", parte))
+}
+
+# Função para calcular evasão por período após ingresso
+calcular_evasao_periodos <- function(dados, curriculo, inicio, fim) {
+  
+  # Filtra currículo e intervalo ingresso
+  dados_filtrados <- dados %>%
+    filter(currculo == curriculo) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    filter(status %in% c("ATIVO", "INATIVO")) %>%
+    filter(!(status == "INATIVO" & tipo_de_evaso == "GRADUADO"))
+  
+  # Converte semestres para números para cálculo
+  dados_filtrados <- dados_filtrados %>%
+    mutate(
+      semestre_ingresso_num = semestre_to_num(as.character(periodo_de_ingresso)),
+      semestre_ultimo = semestre_to_num(as.character(periodo_de_evasao))
+      
+    )
+  
+  # Definir período máximo para cálculo da evasão
+  max_periodos <- 4
+  
+  resultados <- list()
+  
+  for (p in 1:max_periodos) {
+    # Para cada aluno, calcular semestre final do período p após ingresso
+    dados_filtrados <- dados_filtrados %>%
+      mutate(
+        semestre_aval = semestre_ingresso_num + p
+      )
+    
+    # Marcar evasão no período avaliado: INATIVO com ultimo_periodo <= semestre_aval
+    dados_filtrados <- dados_filtrados %>%
+      mutate(
+        evadiu_ate_p = case_when(
+          status == "INATIVO" & semestre_ultimo <= semestre_aval ~ 1,
+          TRUE ~ 0
+        )
+      )
+    
+    # Agrupar por faixa_idade (ou outra variável)
+    dados_filtrados <- dados_filtrados %>%
+      mutate(faixa_idade = case_when(
+        idade_aproximada_no_ingresso < 20 ~ "<20",
+        idade_aproximada_no_ingresso >= 20 & idade_aproximada_no_ingresso <= 24 ~ "20-24",
+        idade_aproximada_no_ingresso >= 25 & idade_aproximada_no_ingresso <= 29 ~ "25-29",
+        idade_aproximada_no_ingresso >= 30 ~ ">=30",
+        TRUE ~ NA_character_
+      ))
+    
+    stats <- dados_filtrados %>%
+      group_by(periodo_de_ingresso, faixa_idade) %>%
+      summarise(
+        total = n(),
+        evasao = sum(evadiu_ate_p),
+        taxa_evasao = evasao / total,
+        media = mean(evadiu_ate_p),
+        desvio_padrao = sd(evadiu_ate_p)
+      ) %>%
+      mutate(periodo = p) %>%
+      ungroup()
+    
+    resultados[[p]] <- stats
+  }
+  
+  # Combina resultados dos 4 períodos
+  resultado_final <- bind_rows(resultados)
+  return(resultado_final)
+}
+
+# Parâmetros por currículo
+curriculos <- list(
+  '1999' = list(inicio = "2011.1", fim = "2016.2"),
+  '2017' = list(inicio = "2018.1", fim = "2022.3")
+)
+
+# Exemplo de uso para currículo 1999
+resultados_1999 <- calcular_evasao_periodos(dados, "1999", curriculos[['1999']][['inicio']], curriculos[['1999']][['fim']])
+print(resultados_1999)
+
+# Exemplo para currículo 2017
+resultados_2017 <- calcular_evasao_periodos(dados, "2017", curriculos[['2017']][['inicio']], curriculos[['2017']][['fim']])
+print(resultados_2017)
+
+#####################################
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# Função semestre_to_num e num_to_semestre (sua versão já OK)
+
+# Função calcular_evasao_periodos (igual a sua)
+
+# Currículos (igual a sua)
+
+# Calcular resultados para 1999 e 2017 (igual a sua)
+
+# --- Gráfico para o currículo 1999 ---
+
+# Adiciona coluna para texto de faixa etária ordenada
+resultados_1999 <- resultados_1999 %>%
+  mutate(faixa_idade = factor(faixa_idade, levels = c("<20", "20-24", "25-29", ">=30")),
+         periodo = factor(periodo, levels = 1:4, labels = paste0(1:4, "º Período")))
+
+# Gráfico de taxa média de evasão por período e faixa etária
+ggplot(resultados_1999, aes(x = periodo, y = media, group = faixa_idade, color = faixa_idade)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_ribbon(aes(ymin = pmax(0, media - desvio_padrao), ymax = pmin(1, media + desvio_padrao), fill = faixa_idade), alpha = 0.2, color = NA) +
+  facet_wrap(~ faixa_idade) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  labs(
+    title = "Taxa Média de Evasão por Período (Currículo 1999)",
+    x = "Período após ingresso",
+    y = "Taxa média de evasão (%)",
+    color = "Faixa Etária",
+    fill = "Faixa Etária"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
+
+# Se quiser gerar para o currículo 2017, é só repetir a mesma lógica:
+
+resultados_2017 <- resultados_2017 %>%
+  mutate(faixa_idade = factor(faixa_idade, levels = c("<20", "20-24", "25-29", ">=30")),
+         periodo = factor(periodo, levels = 1:4, labels = paste0(1:4, "º Período")))
+
+ggplot(resultados_2017, aes(x = periodo, y = media, group = faixa_idade, color = faixa_idade)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_ribbon(aes(ymin = pmax(0, media - desvio_padrao), ymax = pmin(1, media + desvio_padrao), fill = faixa_idade), alpha = 0.2, color = NA) +
+  facet_wrap(~ faixa_idade) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,1)) +
+  labs(
+    title = "Taxa Média de Evasão por Período (Currículo 2017)",
+    x = "Período após ingresso",
+    y = "Taxa média de evasão (%)",
+    color = "Faixa Etária",
+    fill = "Faixa Etária"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
+
+##############################################################################
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)  # Para formatar eixo y em %
+
+# Função para converter semestre "2011.1" -> número sequencial
+semestre_to_num <- function(semestre) {
+  ano <- as.integer(str_extract(semestre, "^\\d{4}"))
+  parte <- as.integer(str_extract(semestre, "\\.(\\d)$", group = 1))
+  return(ano * 2 + parte)
+}
+
+# Função para converter número sequencial para semestre "2011.1"
+num_to_semestre <- function(num) {
+  ano <- num %/% 2
+  parte <- num %% 2
+  parte <- ifelse(parte == 0, 2, 1)
+  ano <- ifelse(parte == 2, ano - 1, ano)
+  return(paste0(ano, ".", parte))
+}
+
+# Função para calcular evasão por períodos após ingresso
+calcular_evasao_periodos <- function(dados, curriculo, inicio, fim) {
+  
+  dados_filtrados <- dados %>%
+    filter(currculo == curriculo) %>%
+    filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
+    filter(status %in% c("ATIVO", "INATIVO")) %>%
+    filter(!(status == "INATIVO" & tipo_de_evaso == "GRADUADO")) %>%
+    mutate(
+      semestre_ingresso_num = semestre_to_num(as.character(periodo_de_ingresso)),
+      semestre_ultimo = semestre_to_num(as.character(periodo_de_evasao)),
+      faixa_idade = case_when(
+        idade_aproximada_no_ingresso < 20 ~ "<20",
+        idade_aproximada_no_ingresso >= 20 & idade_aproximada_no_ingresso <= 24 ~ "20-24",
+        idade_aproximada_no_ingresso >= 25 & idade_aproximada_no_ingresso <= 29 ~ "25-29",
+        idade_aproximada_no_ingresso >= 30 ~ ">=30",
+        TRUE ~ NA_character_
+      )
+    )
+  
+  max_periodos <- 4
+  resultados <- list()
+  
+  for (p in 1:max_periodos) {
+    dados_p <- dados_filtrados %>%
+      mutate(
+        semestre_aval = semestre_ingresso_num + p,
+        evadiu_ate_p = ifelse(status == "INATIVO" & semestre_ultimo <= semestre_aval, 1, 0)
+      ) %>%
+      group_by(periodo_de_ingresso, faixa_idade) %>%
+      summarise(
+        total = n(),
+        evasao = sum(evadiu_ate_p),
+        taxa_evasao = evasao / total,
+        media = mean(evadiu_ate_p),
+        desvio_padrao = sd(evadiu_ate_p),
+        .groups = "drop"
+      ) %>%
+      mutate(periodo = p)
+    
+    resultados[[p]] <- dados_p
+  }
+  
+  bind_rows(resultados)
+}
+
+# Parâmetros currículo 1999
+curriculos <- list(
+  '1999' = list(inicio = "2011.1", fim = "2016.2")
+)
+
+# Calcular evasão currículo 1999
+resultados_1999 <- calcular_evasao_periodos(dados, "1999", curriculos[['1999']][['inicio']], curriculos[['1999']][['fim']])
+
+# Preparar dados para gráfico
+resultados_1999 <- resultados_1999 %>%
+  mutate(
+    faixa_idade = factor(faixa_idade, levels = c("<20", "20-24", "25-29", ">=30")),
+    periodo = factor(periodo, levels = 1:4, labels = paste0(1:4, "º Período"))
+  )
+
+# Gráfico de evasão
+ggplot(resultados_1999, aes(x = periodo, y = media, group = faixa_idade, color = faixa_idade)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_ribbon(aes(ymin = pmax(0, media - desvio_padrao), ymax = pmin(1, media + desvio_padrao), fill = faixa_idade), alpha = 0.2, color = NA) +
+  facet_wrap(~ faixa_idade) +
+  scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0,1)) +
+  labs(
+    title = "Taxa Média de Evasão por Período (Currículo 1999)",
+    x = "Período após ingresso",
+    y = "Taxa média de evasão (%)",
+    color = "Faixa Etária",
+    fill = "Faixa Etária"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
+
+##############################################################################
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+# 1. Carregar os dados (se ainda não estiver carregado)
+# dados <- read.csv("CAMINHO/ARQUIVO.csv", stringsAsFactors = FALSE)
+
+# 2. Filtrar a tabela desejada
+dados_filtrados <- dados %>%
+  filter(status == "INATIVO", tipo_de_evaso != "GRADUADO") %>%
+  filter(!is.na(periodo_de_ingresso), !is.na(periodo_de_evasao), !is.na(sexo), sexo != "")
+
+# 3. Função para transformar semestre em número
+semestre_para_num <- function(semestre) {
+  ano <- as.integer(str_extract(semestre, "^\\d{4}"))
+  periodo <- as.integer(str_extract(semestre, "\\.(\\d)$"))
+  return(ano * 2 + periodo)
+}
+
+# 4. Calcular períodos até evasão
+dados_filtrados <- dados_filtrados %>%
+  mutate(
+    ingresso_num = semestre_para_num(as.character(periodo_de_ingresso)),
+    evasao_num = semestre_para_num(as.character(periodo_de_evasao)),
+    periodos_ate_evasao = evasao_num - ingresso_num
+  ) %>%
+  filter(periodos_ate_evasao >= 0, periodos_ate_evasao <= 12)
+
+# 5. Verificar se há dados
+if(nrow(dados_filtrados) == 0){
+  stop("Nenhum dado disponível após o filtro. Verifique se há registros com status INATIVO e tipo_de_evaso diferente de GRADUADO.")
+}
+
+# 6. Gerar gráfico boxplot
+ggplot(dados_filtrados, aes(x = sexo, y = periodos_ate_evasao, fill = sexo)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 16, alpha = 0.6) +
+  labs(
+    title = "Tempo até Evasão por Sexo",
+    subtitle = "Alunos Inativos (exceto Graduados)",
+    x = "Sexo",
+    y = "Períodos até a Evasão"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+
+##############################################################################
+# Estratificar
+library(dplyr)
+library(stringr)
+
+# 1. Converter semestre para número
+semestre_para_num <- function(semestre) {
+  ano <- as.integer(str_extract(semestre, "^\\d{4}"))
+  semestre_num <- as.integer(str_extract(semestre, "\\.(\\d)$"))
+  return(ano * 2 + semestre_num)
+}
+
+# 2. Filtrar e tratar os dados
+dados_evasao <- dados %>%
+  filter(status == "INATIVO", tipo_de_evaso != "GRADUADO") %>%
+  filter(!is.na(periodo_de_ingresso), !is.na(periodo_de_evasao), !is.na(sexo)) %>%
+  mutate(
+    ingresso_num = semestre_para_num(as.character(periodo_de_ingresso)),
+    evasao_num = semestre_para_num(as.character(periodo_de_evasao)),
+    periodos_ate_evasao = evasao_num - ingresso_num,
+    faixa_idade = case_when(
+      idade_aproximada_no_ingresso < 20 ~ "<20",
+      idade_aproximada_no_ingresso <= 24 ~ "20-24",
+      idade_aproximada_no_ingresso <= 29 ~ "25-29",
+      idade_aproximada_no_ingresso >= 30 ~ ">=30",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(periodos_ate_evasao >= 0, periodos_ate_evasao <= 12)
+
+# 3. Cálculo das estatísticas
+estatisticas <- dados_evasao %>%
+  group_by(sexo, faixa_idade, cota) %>%
+  summarise(
+    n = n(),
+    media_periodos = mean(periodos_ate_evasao, na.rm = TRUE),
+    mediana_periodos = median(periodos_ate_evasao, na.rm = TRUE),
+    desvio_padrao = sd(periodos_ate_evasao, na.rm = TRUE)
+  ) %>%
+  arrange(desc(n))
+
+# 4. Visualizar resultado
+print(estatisticas)
+
+
+###########################################################################
+# Gráfico de barras com média por grupo
+library(ggplot2)
+
+dados_evasao %>%
+  filter(!is.na(faixa_idade), !is.na(sexo), !is.na(cota)) %>%
+  mutate(cota = ifelse(is.na(cota) | cota == "-", "Não cotista", cota)) %>%
+  group_by(sexo, faixa_idade, cota) %>%
+  summarise(media = mean(periodos_ate_evasao), n = n()) %>%
+  filter(n >= 10) %>%
+  ggplot(aes(x = faixa_idade, y = media, fill = sexo)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ cota) +
+  labs(title = "Média de períodos até evasão", y = "Média de períodos", x = "Faixa etária") +
+  theme_minimal()
+
+
+#############################################################################
+# Boxplot de períodos até evasão por sexo e cota
+
+dados_evasao %>%
+  filter(!is.na(sexo), !is.na(cota)) %>%
+  mutate(cota = ifelse(is.na(cota) | cota == "-", "Não cotista", cota)) %>%
+  ggplot(aes(x = cota, y = periodos_ate_evasao, fill = sexo)) +
+  geom_boxplot() +
+  labs(title = "Distribuição dos períodos até evasão por sexo e cota", y = "Períodos até evasão", x = "Cota") +
+  theme_minimal()
+
+###########################################################################
+# Estado civil e cor
+# Carregar pacote dplyr para manipulação dos dados
+library(dplyr)
+
+# Criar variável periodos_cursados (diferença entre período de evasão e ingresso)
+dados <- dados %>%
+  mutate(
+    periodos_cursados = as.numeric(periodo_de_evasao) - as.numeric(periodo_de_ingresso)
+  )
+
+# Calcular estatísticas descritivas estratificadas por cor e estado civil
+estatisticas <- dados %>%
+  filter(!is.na(periodos_cursados), !is.na(cor), !is.na(estado_civil)) %>%
+  group_by(cor, estado_civil) %>%
+  summarise(
+    n = n(),
+    media = mean(periodos_cursados, na.rm = TRUE),
+    mediana = median(periodos_cursados, na.rm = TRUE),
+    desvio_padrao = sd(periodos_cursados, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n))
+
+# Mostrar a tabela com as estatísticas
+print(estatisticas)
+
+
+# Carregar pacote ggplot2 para visualização
+install.packages("viridis")
+
+library(ggplot2)
+library(viridis)
+
+ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  labs(
+    title = "Média de períodos cursados por cor e estado civil",
+    x = "Cor/Raça",
+    y = "Média de Períodos Cursados",
+    fill = "Estado Civil"
+  ) +
+  theme_minimal()
+
+###########################################################################
+library(ggplot2)
+
+ggplot(estatisticas, aes(x = cor, y = media, fill = estado_civil)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c(
+    "Solteiro(a)" = "#A6CEE3",
+    "Casado(a)" = "#B2DF8A",
+    "Divorciado(a)" = "#FB9A99",
+    "Viúvo(a)" = "#FDBF6F",
+    "Separado(a)" = "#CAB2D6"
+  )) +
+  labs(
+    title = "Média de períodos cursados por cor e estado civil",
+    x = "Cor/Raça",
+    y = "Média de Períodos Cursados",
+    fill = "Estado Civil"
+  ) +
+  theme_minimal()
