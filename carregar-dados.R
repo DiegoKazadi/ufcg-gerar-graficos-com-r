@@ -415,36 +415,53 @@ View(resultado_quarto_periodo)
 
 
 ##############################################################################
+colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao", "cpf", "tipo_de_evasao", "status")
+
+for (nome in names(tabelas)) {
+  colunas <- colnames(tabelas[[nome]])
+  faltando <- setdiff(colunas_necessarias, colunas)
+  if (length(faltando) > 0) {
+    cat("🚫 Tabela:", nome, "não tem colunas:", paste(faltando, collapse = ", "), "\n")
+  } else {
+    cat("✅ Tabela:", nome, "OK\n")
+  }
+}
+
+
+##############################################################################
+
+
+
 
 # Gráfico comparativo com ggplot2
 library(dplyr)
 library(ggplot2)
-library(dplyr)
-library(ggplot2)
 library(tidyr)
 
-# Função para calcular o N-ésimo período após o ingresso
-proximo_n_periodo <- function(periodo, n = 1) {
-  ano <- as.integer(sub("\\..*", "", periodo))
-  semestre <- as.integer(sub(".*\\.", "", periodo))
-  for (i in seq_len(n)) {
-    if (semestre == 1) {
-      semestre <- 2
-    } else {
-      semestre <- 1
-      ano <- ano + 1
-    }
+# Funções auxiliares
+avancar_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  if (semestre == 1) {
+    return(paste0(ano, ".2"))
+  } else {
+    return(paste0(ano + 1, ".1"))
   }
-  paste0(ano, ".", semestre)
 }
 
-# Função genérica para calcular evasão ao final de N períodos
-evasao_apos_n_periodos <- function(df, n_periodo, inicio, fim) {
-  
-  # Verifica se as colunas necessárias existem
-  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao", "cpf", "tipo_de_evasao", "status")
+avancar_n_periodos <- function(periodo, n) {
+  periodo_atual <- periodo
+  for (i in seq_len(n)) {
+    periodo_atual <- avancar_periodo(periodo_atual)
+  }
+  return(periodo_atual)
+}
+
+# ✅ Função simplificada, compatível com seus dados
+evasao_apos_n_periodos_simples <- function(df, n_periodo, inicio, fim) {
+  colunas_necessarias <- c("periodo_de_ingresso", "periodo_de_evasao")
   if (!all(colunas_necessarias %in% colnames(df))) {
-    warning("A tabela não possui todas as colunas necessárias e será ignorada.")
     return(NULL)
   }
   
@@ -455,8 +472,8 @@ evasao_apos_n_periodos <- function(df, n_periodo, inicio, fim) {
     ) %>%
     filter(periodo_de_ingresso >= inicio, periodo_de_ingresso <= fim) %>%
     mutate(
-      periodo_esperado_evasao = sapply(periodo_de_ingresso, proximo_n_periodo, n = n_periodo),
-      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao & tipo_de_evasao != "-" & status == "INATIVO")
+      periodo_esperado_evasao = sapply(periodo_de_ingresso, avancar_n_periodos, n = n_periodo),
+      evadiu_no_periodo = (periodo_de_evasao == periodo_esperado_evasao)
     ) %>%
     group_by(periodo_de_ingresso) %>%
     summarise(
@@ -469,57 +486,94 @@ evasao_apos_n_periodos <- function(df, n_periodo, inicio, fim) {
   return(df)
 }
 
-# Definindo os currículos e seus intervalos
+# Currículos e intervalos
 curriculos <- list(
   "1999" = list(inicio = "2011.1", fim = "2016.2"),
   "2017" = list(inicio = "2018.1", fim = "2022.3")
 )
 
-# Lista das tabelas
 tabelas_nomes <- names(tabelas)
-
-# Lista para armazenar resultados
 dados_para_plot <- data.frame()
 
-# Loop pelos currículos, períodos e tabelas
+# Loop principal
 for (curriculo in names(curriculos)) {
   intervalo <- curriculos[[curriculo]]
   
-  for (n in 1:4) {  # Do 1º ao 4º período
+  for (n in 1:4) {
     for (nome_tabela in tabelas_nomes) {
       tabela <- tabelas[[nome_tabela]]
-      resultado <- evasao_apos_n_periodos(tabela, n, intervalo$inicio, intervalo$fim)
+      resultado <- evasao_apos_n_periodos_simples(tabela, n, intervalo$inicio, intervalo$fim)
       
-      if (!is.null(resultado)) {
+      if (!is.null(resultado) && nrow(resultado) > 0) {
         resultado$periodo <- paste0(n, "º período")
         resultado$curriculo <- curriculo
         resultado$tabela <- nome_tabela
-        
         dados_para_plot <- bind_rows(dados_para_plot, resultado)
       }
     }
   }
 }
 
-# Visualizar um pouco dos dados para conferir
-head(dados_para_plot)
-
-# Gráfico: boxplot taxa de evasão por período e currículo, para cada tabela
-library(ggplot2)
-
-for (tabela_nome in unique(dados_para_plot$tabela)) {
-  dados_tabela <- dados_para_plot %>% filter(tabela == tabela_nome)
-  
-  ggplot(dados_tabela, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
-    geom_boxplot(alpha = 0.7) +
-    labs(title = paste("Taxa de Evasão por Período e Currículo - Tabela:", tabela_nome),
-         x = "Período após ingresso",
-         y = "Taxa de Evasão (%)",
-         fill = "Currículo") +
-    theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5)) -> p
-  
-  print(p)
+# ⚠️ Verificar se há dados
+if (nrow(dados_para_plot) == 0) {
+  stop("Nenhum dado foi gerado. Verifique as colunas das tabelas ou os intervalos.")
 }
-chooseCRANmirror()
 
+# 📊 Gráfico boxplot
+ggplot(dados_para_plot, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ tabela, scales = "free_y") +
+  labs(
+    title = "📉 Taxa de Evasão por Período e Currículo",
+    x = "Período após ingresso",
+    y = "Taxa de Evasão (%)",
+    fill = "Currículo"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 0),
+    legend.position = "top"
+  )
+
+##############################################################################
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Diretório de saída para salvar os gráficos (altere se quiser salvar em outro lugar)
+dir.create("graficos_evasao", showWarnings = FALSE)
+
+# Loop para gerar gráfico individual por tabela
+tabelas_unicas <- unique(dados_para_plot$tabela)
+
+for (nome_tabela in tabelas_unicas) {
+  dados_tabela <- dados_para_plot %>% filter(tabela == nome_tabela)
+  
+  grafico <- ggplot(dados_tabela, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
+    geom_boxplot(alpha = 0.7) +
+    labs(
+      title = paste0("📉 Taxa de Evasão - ", nome_tabela),
+      x = "Período após ingresso",
+      y = "Taxa de Evasão (%)",
+      fill = "Currículo"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      axis.text.x = element_text(angle = 0),
+      legend.position = "top"
+    )
+  
+  # ✅ Mostrar na tela (descomente se quiser ver um por um)
+  # print(grafico)
+  
+  # ✅ Salvar como PNG
+  ggsave(
+    filename = paste0("graficos_evasao/", nome_tabela, ".png"),
+    plot = grafico,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+}
