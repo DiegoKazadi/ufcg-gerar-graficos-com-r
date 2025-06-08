@@ -1801,3 +1801,110 @@ for (periodo in 1:4) {
     print(g2)
   }
 }
+#####
+####
+####
+# -------------------------------
+# Gráficos com barra e boxplot por variável, período e currículo
+# -------------------------------
+
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# Identificação do currículo com base no período de ingresso
+library(dplyr)
+
+dados <- dados %>%
+  mutate(
+    p1 = periodo_de_ingresso,
+    p2 = paste0(substr(periodo_de_ingresso, 1, 4), ".", 
+                ifelse(substr(periodo_de_ingresso, 6, 6) == "1", "2", 
+                       as.character(as.numeric(substr(periodo_de_ingresso, 6, 6)) + 1))),
+    p3 = paste0(as.character(as.numeric(substr(periodo_de_ingresso, 1, 4)) + 1), ".", 
+                substr(periodo_de_ingresso, 6, 6)),
+    p4 = paste0(as.character(as.numeric(substr(periodo_de_ingresso, 1, 4)) + 1), ".", 
+                ifelse(substr(periodo_de_ingresso, 6, 6) == "1", "2", "1")),
+    evadiu_p1 = ifelse(periodo_de_evasao == p1, 1, 0),
+    evadiu_p2 = ifelse(periodo_de_evasao == p2, 1, 0),
+    evadiu_p3 = ifelse(periodo_de_evasao == p3, 1, 0),
+    evadiu_p4 = ifelse(periodo_de_evasao == p4, 1, 0)
+  )
+
+
+df_evasao <- dados %>%
+  mutate(
+    periodo_ingresso_num = as.numeric(gsub("\\.", "", periodo_de_ingresso)),
+    curriculo = case_when(
+      periodo_ingresso_num >= 20111 & periodo_ingresso_num <= 20172 ~ "Currículo 1999",
+      periodo_ingresso_num >= 20181 & periodo_ingresso_num <= 20222 ~ "Currículo 2017",
+      TRUE ~ "Outro"
+    )
+  )
+
+variaveis <- c("sexo", "cor", "estado_civil", "forma_de_ingresso")
+
+for (periodo in 1:4) {
+  cat("\n====== Estatísticas de Evasão -", periodo, "º Período ======\n")
+  col_evasao <- paste0("evadiu_p", periodo)
+  
+  for (curr in unique(df_evasao$curriculo)) {
+    df_curriculo <- df_evasao %>% filter(curriculo == curr)
+    
+    cat("\n---", curr, "---\n")
+    
+    for (var in variaveis) {
+      cat("\n[", toupper(var), "]\n")
+      
+      df_resultado <- df_curriculo %>%
+        group_by(.data[[var]]) %>%
+        summarise(
+          total = n(),
+          evasoes = sum(.data[[col_evasao]], na.rm = TRUE),
+          .groups = "drop"
+        ) %>%
+        mutate(taxa_evasao = evasoes / total)
+      
+      media <- mean(df_resultado$taxa_evasao, na.rm = TRUE)
+      desvio <- sd(df_resultado$taxa_evasao, na.rm = TRUE)
+      
+      print(df_resultado)
+      cat("Média:", round(media, 4), "| Desvio Padrão:", round(desvio, 4), "\n")
+      
+      # Gráfico de Barras
+      g1 <- ggplot(df_resultado, aes(x = .data[[var]], y = taxa_evasao)) +
+        geom_col(fill = "#21908CFF") +
+        geom_hline(yintercept = media, color = "red", linetype = "dashed") +
+        geom_rect(aes(ymin = media - desvio, ymax = media + desvio, xmin = -Inf, xmax = Inf),
+                  fill = "red", alpha = 0.1, inherit.aes = FALSE) +
+        scale_y_continuous(labels = percent_format()) +
+        labs(
+          title = paste("Taxa de Evasão por", var, "-", periodo, "º Período -", curr),
+          x = var,
+          y = "Taxa de Evasão (%)"
+        ) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      
+      print(g1)
+      
+      # Gráfico Boxplot
+      g2 <- ggplot(df_curriculo, aes(x = .data[[var]], y = .data[[col_evasao]])) +
+        geom_boxplot(fill = "steelblue") +
+        labs(
+          title = paste("Boxplot de Evasão por", var, "-", periodo, "º Período -", curr),
+          x = var,
+          y = "Evasão (0 = não, 1 = sim)"
+        ) +
+        theme_minimal()
+      
+      print(g2)
+    }
+  }
+}
+
+unique(df_evasao$periodo_de_ingresso)
+table(df_evasao$periodo_ingresso_num)
+table(tabelas$periodo_de_ingresso)
+table(dados$periodo_de_ingresso)
+colnames(dados)
