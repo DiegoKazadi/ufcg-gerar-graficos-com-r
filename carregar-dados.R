@@ -1572,3 +1572,32 @@ estatisticas_completas <- dados_linha %>%
     .groups = "drop"
   )
 print(estatisticas_completas)
+
+###############################################################################
+# Geração de Boxplot Comparativo por Currículo e Período
+library(ggplot2)
+library(dplyr)
+
+# Supondo que você já tenha o `dados_linha` com as colunas:
+# curriculo, periodo, taxa_evasao
+
+# Cores diferenciadas para os currículos
+cores_curriculo <- c("1999" = "#FF9999", "2017" = "#66C2A5")
+
+# Criar boxplot
+ggplot(dados_linha, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
+  geom_boxplot(outlier.shape = 21, outlier.fill = "black", outlier.color = "black") +
+  scale_fill_manual(values = cores_curriculo) +
+  labs(
+    title = "Distribuição das Taxas de Evasão por Currículo e Período",
+    x = "Período após o ingresso",
+    y = "Taxa de Evasão (%)",
+    fill = "Currículo"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "top",
+    panel.grid.major.x = element_blank()
+  )
+
