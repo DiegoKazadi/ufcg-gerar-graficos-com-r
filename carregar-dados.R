@@ -1601,3 +1601,137 @@ ggplot(dados_linha, aes(x = periodo, y = taxa_evasao, fill = curriculo)) +
     panel.grid.major.x = element_blank()
   )
 
+#############################################################################
+# Gráfico de Linhas da Evolução das Taxas de Evasão
+# Visualizar as primeiras linhas da base
+head(dados_linha)
+# Visualizar estrutura da base
+glimpse(dados_linha)
+
+library(ggplot2)
+
+ggplot(dados_linha, aes(x = periodo_esperado_evasao, y = taxa_evasao, color = curriculo, group = curriculo)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Evolução das Taxas de Evasão por Currículo (Semestre a Semestre)",
+    x = "Período Esperado de Evasão",
+    y = "Taxa de Evasão (%)",
+    color = "Currículo"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("1999" = "#F8766D", "2017" = "#00BA38"))
+
+
+############################################################################
+# Histogramas das Taxas de Evasão por Currículo
+library(ggplot2)
+
+# Supondo que os dados estejam no mesmo data frame `dados_linha`
+# com colunas: 'taxa_evasao' e 'curriculo'
+
+ggplot(dados_linha, aes(x = taxa_evasao, fill = curriculo)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 15) +
+  facet_wrap(~ curriculo) +
+  labs(
+    title = "Distribuição das Taxas de Evasão por Currículo",
+    x = "Taxa de Evasão (%)",
+    y = "Frequência",
+    fill = "Currículo"
+  ) +
+  scale_fill_manual(values = c("1999" = "#F8766D", "2017" = "#00BA38")) +
+  theme_minimal()
+
+
+###########################################################################
+#  Gráfico de Barras por Semestre (lado a lado por currículo)
+library(ggplot2)
+
+ggplot(dados_linha, aes(x = periodo_esperado_evasao, y = taxa_evasao, fill = curriculo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Gráfico de Barras das Taxas de Evasão por Semestre",
+    x = "Semestre de ocorrência da evasão",
+    y = "Taxa de Evasão (%)",
+    fill = "Currículo"
+  ) +
+  scale_fill_manual(values = c("1999" = "#F8766D", "2017" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#############################################################################
+# Filtrar os quatro primeiros períodos
+periodos_validos <- c("1º período", "2º período", "3º período", "4º período")
+dados_filtrados <- subset(dados_linha, periodo %in% periodos_validos)
+
+# Gerar o gráfico de barras com facetas por período
+library(ggplot2)
+
+ggplot(dados_filtrados, aes(x = curriculo, y = taxa_evasao, fill = curriculo)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  facet_wrap(~periodo, nrow = 1) +
+  labs(
+    title = "Taxa de Evasão por Currículo nos Quatro Primeiros Períodos",
+    x = "Currículo",
+    y = "Taxa de Evasão (%)"
+  ) +
+  scale_fill_manual(values = c("1999" = "#F8766D", "2017" = "#00BA38")) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none"
+  )
+
+
+library(ggplot2)
+library(dplyr)
+
+# Filtrar os quatro primeiros períodos
+periodos_validos <- c("1º período", "2º período", "3º período", "4º período")
+dados_filtrados <- subset(dados_linha, periodo %in% periodos_validos)
+
+# Calcular total de evasão por curriculo e periodo
+# Supondo que 'taxa_evasao' seja taxa (em %) e 'total_evasao' seja a contagem absoluta (se não tiver, ajusta aqui)
+# Se você não tiver a contagem absoluta, precisará agregar uma variável que represente o total.
+# Aqui vamos supor que 'evasao' é um campo que indica a contagem de evasão para cada linha.
+
+# Se não tiver 'evasao', considere criar um resumo baseado nos dados existentes, exemplo:
+# dados_summarized <- dados_filtrados %>%
+#   group_by(curriculo, periodo) %>%
+#   summarise(taxa_evasao = mean(taxa_evasao),
+#             total_evasao = sum(contagem_evasao)) # 'contagem_evasao' deve existir ou criar
+
+# Como você não detalhou a variável total, vou supor que tem um campo 'total_evasao' para texto
+
+# Vamos criar um dataset resumo para mostrar as labels do total
+dados_resumo <- dados_filtrados %>%
+  group_by(curriculo, periodo) %>%
+  summarise(
+    taxa_evasao = mean(taxa_evasao), # manter a média da taxa para a barra
+    total_evasao = sum(total_evasao) # substitua 'total_evasao' pela variável correta
+  )
+
+# Plot com geom_bar + texto do total de evasão + legenda
+ggplot(dados_resumo, aes(x = curriculo, y = taxa_evasao, fill = curriculo)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = total_evasao), vjust = -0.5, size = 4, fontface = "bold") +
+  facet_wrap(~periodo, nrow = 1) +
+  labs(
+    title = "Taxa de Evasão por Currículo nos Quatro Primeiros Períodos",
+    x = "Currículo",
+    y = "Taxa de Evasão (%)",
+    fill = "Currículo"  # Aqui mantemos a legenda para curriculo
+  ) +
+  scale_fill_manual(values = c("1999" = "#F8766D", "2017" = "#00BA38")) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "right"
+  )
+
+unique(dados_linha$periodo)
+
+names(dados_linha)
