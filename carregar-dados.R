@@ -1531,3 +1531,44 @@ tabela_agrupada <- table(dados$cor_agrupada, dados$evasao_bin)
 # Rode Fisher Test na tabela menor
 fisher.test(tabela_agrupada)
 
+##############################################################################
+
+# As taxas de evasão Cálculo de média, mediana e desvio padrão
+library(dplyr)
+
+estatisticas_taxas <- dados_linha %>%
+  group_by(curriculo) %>%
+  summarise(
+    media = mean(taxa_evasao, na.rm = TRUE),
+    mediana = median(taxa_evasao, na.rm = TRUE),
+    desvio_padrao = sd(taxa_evasao, na.rm = TRUE),
+    .groups = "drop"
+  )
+print(estatisticas_taxas)
+
+##############################################################################
+# Cálculo de assimetria (skewness)
+# Instalar se necessário
+install.packages("moments")
+library(moments)
+
+assimetria <- dados_linha %>%
+  group_by(curriculo) %>%
+  summarise(
+    skewness = skewness(taxa_evasao, na.rm = TRUE),
+    .groups = "drop"
+  )
+print(assimetria)
+
+##############################################################################
+
+estatisticas_completas <- dados_linha %>%
+  group_by(curriculo) %>%
+  summarise(
+    media = mean(taxa_evasao, na.rm = TRUE),
+    mediana = median(taxa_evasao, na.rm = TRUE),
+    desvio_padrao = sd(taxa_evasao, na.rm = TRUE),
+    skewness = skewness(taxa_evasao, na.rm = TRUE),
+    .groups = "drop"
+  )
+print(estatisticas_completas)
