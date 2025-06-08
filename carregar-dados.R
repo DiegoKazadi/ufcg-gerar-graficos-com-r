@@ -1735,3 +1735,130 @@ ggplot(dados_resumo, aes(x = curriculo, y = taxa_evasao, fill = curriculo)) +
 unique(dados_linha$periodo)
 
 names(dados_linha)
+
+
+#######  ######
+
+# -------------------------------
+# 1. Carregamento de pacotes
+# -------------------------------
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(scales)) install.packages("scales")
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+# -------------------------------
+# 2. Função para obter próximo período
+# -------------------------------
+proximo_periodo <- function(periodo) {
+  partes <- unlist(strsplit(periodo, "\\."))
+  ano <- as.integer(partes[1])
+  semestre <- as.integer(partes[2])
+  
+  if (semestre == 1) {
+    semestre <- 2
+  } else {
+    semestre <- 1
+    ano <- ano + 1
+  }
+  
+  return(paste0(ano, ".", semestre))
+}
+
+# -------------------------------
+# 3. Calcular evasão nos períodos p1 a p4
+# -------------------------------
+calcular_evasao_multiplos_periodos <- function(df, inicio = "2011.1", fim = "2017.2") {
+  df <- df %>% 
+    filter(periodo_de_ingresso >= inicio & periodo_de_ingresso <= fim)
+  
+  df$p1 <- sapply(df$periodo_de_ingresso, proximo_periodo)
+  df$p2 <- sapply(df$p1, proximo_periodo)
+  df$p3 <- sapply(df$p2, proximo_periodo)
+  df$p4 <- sapply(df$p3, proximo_periodo)
+  
+  for (i in 1:4) {
+    col_evasao <- paste0("evadiu_p", i)
+    periodo_ref <- paste0("p", i)
+    df[[col_evasao]] <- df$periodo_de_evasao == df[[periodo_ref]]
+  }
+  
+  return(df)
+}
+
+# -------------------------------
+# 4. Estatísticas por variável
+# -------------------------------
+estatisticas_por_variavel <- function(df, variavel, periodo) {
+  col_evasao <- paste0("evadiu_p", periodo)
+  
+  df_periodo <- df %>%
+    group_by(.data[[variavel]]) %>%
+    summarise(
+      total = n(),
+      evasoes = sum(.data[[col_evasao]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(taxa_evasao = evasoes / total)
+  
+  media <- mean(df_periodo$taxa_evasao, na.rm = TRUE)
+  desvio <- sd(df_periodo$taxa_evasao, na.rm = TRUE)
+  
+  return(list(df_periodo = df_periodo, media = media, desvio = desvio))
+}
+
+# -------------------------------
+# 5. Gráfico
+# -------------------------------
+plotar_grafico <- function(df_resultado, media, desvio, var, periodo) {
+  df_resultado <- df_resultado %>% arrange(desc(taxa_evasao))
+  
+  ggplot(df_resultado, aes(x = reorder(.data[[var]], -taxa_evasao), y = taxa_evasao)) +
+    geom_bar(stat = "identity", fill = "#21908CFF") +
+    geom_hline(yintercept = media, color = "red", linetype = "dashed", size = 1) +
+    annotate("rect", xmin = -Inf, xmax = Inf,
+             ymin = media - desvio, ymax = media + desvio,
+             fill = "red", alpha = 0.1) +
+    scale_y_continuous(labels = percent_format(accuracy = 1)) +
+    labs(
+      title = paste("Taxa de Evasão por", toupper(var), "-", periodo, "º Período"),
+      x = var,
+      y = "Taxa de Evasão (%)"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(hjust = 0.5, face = "bold")
+    )
+}
+
+# -------------------------------
+# 6. Lista de variáveis a analisar
+# -------------------------------
+variaveis <- c(
+  "sexo",
+  "cor",
+  "estado_civil",
+  "politica_afirmativa",
+  "forma_de_ingresso",
+  "tipo_de_ensino_medio"
+)
+
+# -------------------------------
+# 7. Aplicação do script à base correta
+# -------------------------------
+
+df_alunos <- tabelas[["alunos-novos-sem-reingressos-novos-ou-antigos-sem-metricas"]]
+df_evasao <- calcular_evasao_multiplos_periodos(df_alunos)
+
+for (periodo in 1:4) {
+  cat(paste("\n====== Estatísticas de Evasão -", periodo, "º Período ======\n"))
+  for (var in variaveis) {
+    resultado <- estatisticas_por_variavel(df_evasao, var, periodo)
+    print(resultado$df_periodo)
+    print(paste("Média:", round(resultado$media, 4), "| Desvio:", round(resultado$desvio, 4)))
+    print(plotar_grafico(resultado$df_periodo, resultado$media, resultado$desvio, var, periodo))
+  }
+}
